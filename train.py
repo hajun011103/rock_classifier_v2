@@ -1,28 +1,31 @@
-# train.py (KFold 루프 + 테스트 예측) without FocalLoss and Scheduler
+# train.py (완전한 버전: AMP, WandB logging 포함)
 import wandb
-import numpy as np
 import torch
 import torch.nn as nn
+import numpy as np
 from tqdm import tqdm
 import pandas as pd
+from sklearn.metrics import f1_score
+
 import config
 from dataset import make_kfold_dataloaders, make_test_dataloader
 from model import build_model
-from utils import save_checkpoint
+from utils import save_checkpoint, load_checkpoint
+
+# AMP context manager alias
+from torch.cuda.amp import autocast, GradScaler
 
 def train_one_fold(fold_id, train_loader, val_loader):
     wandb.init(project=config.PROJECT_NAME,
                name=f"{config.RUN_NAME}_fold{fold_id+1}")
 
     model = build_model()
-    optimizer = torch.optim.AdamW(model.parameters(),
-                                  lr=config.LR,
-                                  weight_decay=config.WEIGHT_DECAY)
+    model.to(config.DEVICE)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.LR, weight_decay=config.WEIGHT_DECAY)
     criterion = nn.CrossEntropyLoss()
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = GradScaler()
 
     best_val_f1, patience = -1.0, 0
-    hist = {"train_loss":[], "val_loss":[], "train_acc":[], "val_acc":[], "val_f1":[]}
 
     for epoch in range(config.EPOCHS):
         # ---------- Train ----------
@@ -33,63 +36,68 @@ def train_one_fold(fold_id, train_loader, val_loader):
             labels = targets.argmax(dim=1).to(config.DEVICE)
 
             optimizer.zero_grad()
-            with torch.cuda.amp.autocast():
+
+            # 자동 혼합 정밀도
+            with autocast():
                 logits = model(imgs)
-                loss   = criterion(logits, labels)
+                loss = criterion(logits, labels)
+
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-            tr_loss    += loss.item() * imgs.size(0)
-            preds       = logits.argmax(dim=1)
+            tr_loss += loss.item() * imgs.size(0)
+            preds = logits.argmax(dim=1)
             tr_correct += (preds == labels).sum().item()
-            tr_total   += labels.size(0)
+            tr_total += labels.size(0)
 
         train_loss = tr_loss / tr_total
-        train_acc  = tr_correct / tr_total
+        train_acc = tr_correct / tr_total
 
         # ---------- Validate ----------
         model.eval()
         val_loss, val_correct, val_total = 0.0, 0, 0
         y_true, y_pred = [], []
+
         with torch.no_grad():
             for imgs, targets in val_loader:
                 imgs = imgs.to(config.DEVICE)
                 labels = targets.argmax(dim=1).to(config.DEVICE)
-                with torch.cuda.amp.autocast():
+                with autocast():
                     logits = model(imgs)
-                    loss   = criterion(logits, labels)
-                val_loss   += loss.item() * imgs.size(0)
-                preds       = logits.argmax(dim=1)
+                    loss = criterion(logits, labels)
+
+                val_loss += loss.item() * imgs.size(0)
+                preds = logits.argmax(dim=1)
                 val_correct += (preds == labels).sum().item()
-                val_total   += labels.size(0)
+                val_total += labels.size(0)
                 y_true.extend(labels.cpu().numpy())
                 y_pred.extend(preds.cpu().numpy())
 
         val_loss = val_loss / val_total
-        val_acc  = val_correct / val_total
-        val_f1   = f1_score(y_true, y_pred, average='macro')
+        val_acc = val_correct / val_total
+        val_f1 = f1_score(y_true, y_pred, average='macro')
 
         # ---------- Log to WandB ----------
         wandb.log({
-            "epoch":          epoch + 1,
-            "train_loss":     train_loss,
-            "train_acc":      train_acc,
-            "val_loss":       val_loss,
-            "val_acc":        val_acc,
-            "val_macro_f1":   val_f1
-        })  # :contentReference[oaicite:0]{index=0}
+            "epoch": epoch + 1,
+            "train_loss": train_loss,
+            "train_acc": train_acc,
+            "val_loss": val_loss,
+            "val_acc": val_acc,
+            "val_macro_f1": val_f1
+        })
 
         print(f"[Fold {fold_id+1} | Epoch {epoch+1}/{config.EPOCHS}]  "
-              f"Train Loss {train_loss:.4f}  Acc {train_acc:.3f}  |  "
-              f"Val Loss {val_loss:.4f}  Acc {val_acc:.3f}  |  "
+              f"Train Loss {train_loss:.4f} Acc {train_acc:.3f}  |  "
+              f"Val Loss {val_loss:.4f} Acc {val_acc:.3f}  |  "
               f"Macro-F1 {val_f1:.4f}")
 
         # ---------- Checkpoint & Early Stopping ----------
         save_checkpoint({
-            "epoch":      epoch,
+            "epoch": epoch,
             "state_dict": model.state_dict(),
-            "optimizer":  optimizer.state_dict()
+            "optimizer": optimizer.state_dict()
         }, is_best=(val_f1 > best_val_f1),
            filename=f"fold{fold_id+1}_epoch{epoch+1}.pt")
 
@@ -104,14 +112,13 @@ def train_one_fold(fold_id, train_loader, val_loader):
     wandb.finish()
 
 
-
 def predict_test(model_paths):
     loader = make_test_dataloader()
     preds = []
     for path in model_paths:
         model = build_model()
-        model.load_state_dict(torch.load(path)["state_dict"])
-        model.eval()
+        load_checkpoint(model, filename=path)
+        model.to(config.DEVICE).eval()
         all_out = []
         for imgs, _ in loader:
             imgs = imgs.to(config.DEVICE)
@@ -119,6 +126,7 @@ def predict_test(model_paths):
                 out = model(imgs)
             all_out.append(out.softmax(1).cpu().numpy())
         preds.append(np.concatenate(all_out, axis=0))
+
     avg_preds = np.mean(preds, axis=0)
     labels = avg_preds.argmax(axis=1)
     sub = pd.read_csv(config.SUBMISSION_CSV)
@@ -127,13 +135,12 @@ def predict_test(model_paths):
 
 
 def main():
-    # KFold 학습
     folds = make_kfold_dataloaders()
     for i, (tr, vl) in enumerate(folds):
         train_one_fold(i, tr, vl)
-    # 테스트 예측 예시
-    # predict_test(["./checkpoints/fold1_best.pt", ...])
+    # predict_test([...])
 
 
 if __name__ == "__main__":
     main()
+    `
