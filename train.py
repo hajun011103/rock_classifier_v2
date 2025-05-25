@@ -1,5 +1,6 @@
 # train.py (KFold 루프 + 테스트 예측) without FocalLoss and Scheduler
 import wandb
+import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -10,37 +11,98 @@ from model import build_model
 from utils import save_checkpoint
 
 def train_one_fold(fold_id, train_loader, val_loader):
-    wandb.init(project=config.PROJECT_NAME, name=f"{config.RUN_NAME}_fold{fold_id+1}")
+    wandb.init(project=config.PROJECT_NAME,
+               name=f"{config.RUN_NAME}_fold{fold_id+1}")
 
     model = build_model()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.LR, weight_decay=config.WEIGHT_DECAY)
+    optimizer = torch.optim.AdamW(model.parameters(),
+                                  lr=config.LR,
+                                  weight_decay=config.WEIGHT_DECAY)
     criterion = nn.CrossEntropyLoss()
     scaler = torch.cuda.amp.GradScaler()
 
-    best_f1, patience = -1, 0
+    best_val_f1, patience = -1.0, 0
+    hist = {"train_loss":[], "val_loss":[], "train_acc":[], "val_acc":[], "val_f1":[]}
+
     for epoch in range(config.EPOCHS):
-        # Training
+        # ---------- Train ----------
         model.train()
-        for imgs, targets in tqdm(train_loader, desc=f"Fold{fold_id+1} Train Epoch{epoch+1}"):
-            imgs, targets = imgs.to(config.DEVICE), targets.to(config.DEVICE)
+        tr_loss, tr_correct, tr_total = 0.0, 0, 0
+        for imgs, targets in train_loader:
+            imgs = imgs.to(config.DEVICE)
+            labels = targets.argmax(dim=1).to(config.DEVICE)
+
             optimizer.zero_grad()
             with torch.cuda.amp.autocast():
-                outputs = model(imgs)
-                # targets is one-hot, convert to class indices
-                labels = targets.argmax(dim=1)
-                loss = criterion(outputs, labels)
+                logits = model(imgs)
+                loss   = criterion(logits, labels)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-        # Validation (F1 스코어 계산 로직 추가 필요)
+            tr_loss    += loss.item() * imgs.size(0)
+            preds       = logits.argmax(dim=1)
+            tr_correct += (preds == labels).sum().item()
+            tr_total   += labels.size(0)
+
+        train_loss = tr_loss / tr_total
+        train_acc  = tr_correct / tr_total
+
+        # ---------- Validate ----------
         model.eval()
-        # ...
-        save_checkpoint({"state_dict": model.state_dict()}, is_best=False,
-                        filename=f"fold{fold_id+1}_epoch{epoch+1}.pt")
-        # early stop 로직
+        val_loss, val_correct, val_total = 0.0, 0, 0
+        y_true, y_pred = [], []
+        with torch.no_grad():
+            for imgs, targets in val_loader:
+                imgs = imgs.to(config.DEVICE)
+                labels = targets.argmax(dim=1).to(config.DEVICE)
+                with torch.cuda.amp.autocast():
+                    logits = model(imgs)
+                    loss   = criterion(logits, labels)
+                val_loss   += loss.item() * imgs.size(0)
+                preds       = logits.argmax(dim=1)
+                val_correct += (preds == labels).sum().item()
+                val_total   += labels.size(0)
+                y_true.extend(labels.cpu().numpy())
+                y_pred.extend(preds.cpu().numpy())
+
+        val_loss = val_loss / val_total
+        val_acc  = val_correct / val_total
+        val_f1   = f1_score(y_true, y_pred, average='macro')
+
+        # ---------- Log to WandB ----------
+        wandb.log({
+            "epoch":          epoch + 1,
+            "train_loss":     train_loss,
+            "train_acc":      train_acc,
+            "val_loss":       val_loss,
+            "val_acc":        val_acc,
+            "val_macro_f1":   val_f1
+        })  # :contentReference[oaicite:0]{index=0}
+
+        print(f"[Fold {fold_id+1} | Epoch {epoch+1}/{config.EPOCHS}]  "
+              f"Train Loss {train_loss:.4f}  Acc {train_acc:.3f}  |  "
+              f"Val Loss {val_loss:.4f}  Acc {val_acc:.3f}  |  "
+              f"Macro-F1 {val_f1:.4f}")
+
+        # ---------- Checkpoint & Early Stopping ----------
+        save_checkpoint({
+            "epoch":      epoch,
+            "state_dict": model.state_dict(),
+            "optimizer":  optimizer.state_dict()
+        }, is_best=(val_f1 > best_val_f1),
+           filename=f"fold{fold_id+1}_epoch{epoch+1}.pt")
+
+        if val_f1 > best_val_f1:
+            best_val_f1, patience = val_f1, 0
+        else:
+            patience += 1
+            if patience >= config.PATIENCE:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
 
     wandb.finish()
+
 
 
 def predict_test(model_paths):

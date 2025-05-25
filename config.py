@@ -3,12 +3,12 @@ import os
 import torch
 
 # Path
-DATA_DIR         = 'home/wfscontrol/Downloads/rocks'
-TRAIN_DIR        = 'home/wfscontrol/Downloads/rocks/train'
-TEST_DIR         = 'home/wfscontrol/Downloads/rocks/test'
+DATA_DIR         = '/home/wfscontrol/Downloads/rocks'
+TRAIN_DIR        = '/home/wfscontrol/Downloads/rocks/train'
+TEST_DIR         = '/home/wfscontrol/Downloads/rocks/test'
 SUBMISSION_CSV   = os.path.join(DATA_DIR, "sample_submission.csv")
 TEST_CSV         = os.path.join(DATA_DIR, "test.csv")
-SAVE_DIR         = 'home/wfscontrol/rock_classifier'
+SAVE_DIR         = '/home/wfscontrol/rock_classifier'
 
 # Hyperparameters
 BATCH_SIZE       = 16
@@ -28,4 +28,4 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Cross Validatoin
 N_FOLDS          = 5
-ETC_NAME         = "etc"
+ETC_NAME         = "Etc"
