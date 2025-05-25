@@ -23,6 +23,12 @@ def train_one_fold(fold_id, train_loader, val_loader):
     criterion = nn.CrossEntropyLoss()
     scaler = GradScaler()
 
+    # 이전 체크포인트가 있으면 로드 (resume)
+    resume_path = os.path.join(config.SAVE_DIR, f"fold{fold_id+1}_best_model.pt")
+    if os.path.exists(resume_path):
+        print(f"Loading checkpoint for fold {fold_id+1} from {resume_path}")
+        load_checkpoint(model, optimizer=optimizer, filename=resume_path)
+
     best_val_f1 = -1.0
 
     for epoch in range(config.EPOCHS):
@@ -92,7 +98,7 @@ def train_one_fold(fold_id, train_loader, val_loader):
             "state_dict": model.state_dict(),
             "optimizer":  optimizer.state_dict()
         }, is_best=(val_f1 > best_val_f1),
-           filename=f"fold{fold_id+1}_epoch{epoch+1}.pt")
+           filename=f"fold{fold_id+1}_best_model.pt")
 
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
