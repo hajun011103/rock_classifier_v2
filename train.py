@@ -4,7 +4,7 @@ import random
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 from torch.cuda.amp import autocast, GradScaler
 import numpy as np
 from tqdm import tqdm
@@ -39,12 +39,17 @@ def train_one_fold(fold_id, train_loader, val_loader, logger):
                       lr=config.LR,
                       weight_decay=config.WEIGHT_DECAY)
     # Cosine Annealing LR scheduler
-    scheduler = CosineAnnealingLR(optimizer,
-                                  T_max=config.EPOCHS,
-                                  eta_min=config.MIN_LR)
+    scheduler = SequentialLR(
+        optimizer,
+        schedulers=[
+            LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=config.WARM_UP_EPOCHS),
+            CosineAnnealingLR(optimizer, T_max=config.EPOCHS - config.WARM_UP_EPOCHS, config.MIN_LR)
+        ],
+        milestones=[config.WARM_UP_EPOCHS]
+    )
 
     criterion = nn.CrossEntropyLoss()
-    scaler = GradScaler()
+    scaler = torch.amp.GradScaler("cuda")
 
     # Resume checkpoint if exists
     resume_path = os.path.join(config.SAVE_DIR,
