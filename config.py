@@ -1,4 +1,4 @@
-# config.py (추가 설정)
+# config.py
 import os
 import torch
 
@@ -11,12 +11,14 @@ TEST_CSV         = os.path.join(DATA_DIR, "test.csv")
 SAVE_DIR         = '/home/wfscontrol/rock_classifier'
 
 # Hyperparameters
-BATCH_SIZE       = 16
+BATCH_SIZE       = 96
 NUM_CLASSES      = 7  
 EPOCHS           = 50
 LR               = 1e-4
+MIN_LR           = 1e-6
 WEIGHT_DECAY     = 1e-2
 PATIENCE         = 5
+SEED             = 42
 
 # WandB settings
 PROJECT_NAME     = "rock_classification"

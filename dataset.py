@@ -1,6 +1,7 @@
 # dataset.py
 import os
 import numpy as np
+from PIL import Image
 import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset, Dataset as TorchDataset
