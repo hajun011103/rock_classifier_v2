@@ -1,3 +1,4 @@
+# train.py
 import os
 import random
 import torch
@@ -61,8 +62,7 @@ def train_one_fold(fold_id, train_loader, val_loader, logger):
         tr_loss = tr_correct = tr_total = 0
         for imgs, targets in tqdm(train_loader,
                                   desc=f"Fold{fold_id+1} Train E{epoch+1}"):
-            imgs, targets = imgs.to(config.DEVICE), targets.to(config.DEVICE)
-            labels = targets.argmax(dim=1)
+            imgs, labels = imgs.to(config.DEVICE), targets.to(config.DEVICE)
 
             optimizer.zero_grad()
             with autocast():
@@ -87,8 +87,7 @@ def train_one_fold(fold_id, train_loader, val_loader, logger):
         y_true, y_pred = [], []
         with torch.no_grad():
             for imgs, targets in val_loader:
-                imgs, targets = imgs.to(config.DEVICE), targets.to(config.DEVICE)
-                labels = targets.argmax(dim=1)
+                imgs, labels = imgs.to(config.DEVICE), targets.to(config.DEVICE)
                 outputs = model(imgs)
                 loss = criterion(outputs, labels)
 
