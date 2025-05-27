@@ -11,10 +11,10 @@ TEST_CSV         = os.path.join(DATA_DIR, "test.csv")
 SAVE_DIR         = '/home/wfscontrol/rock_classifier/rock_classifier_v2'
 
 # Hyperparameters
-BATCH_SIZE       = 80
+BATCH_SIZE       = 32
 NUM_CLASSES      = 7  
 EPOCHS           = 50
-LR               = 3.125e-5
+LR               = 1e-4
 MIN_LR           = 1e-6
 WEIGHT_DECAY     = 1e-2
 PATIENCE         = 5

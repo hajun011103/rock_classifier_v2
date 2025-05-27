@@ -48,7 +48,7 @@ def train_one_fold(fold_id, train_loader, val_loader, logger):
         milestones=[config.WARM_UP_EPOCHS]
     )
 
-    criterion = nn.CrossEntropyLoss(weights=config.WEIGHTS)
+    criterion = nn.CrossEntropyLoss(weight=config.WEIGHTS)
     scaler = torch.amp.GradScaler()
 
     # Resume checkpoint if exists
