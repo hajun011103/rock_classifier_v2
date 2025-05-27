@@ -11,12 +11,12 @@ from tqdm import tqdm
 import pandas as pd
 from sklearn.metrics import f1_score
 import datetime
+from torch.utils.tensorboard import SummaryWriter
 
 import config
 from dataset import stratified_kfold_dataloaders, make_test_dataloader
 from model import build_model
 from utils import save_checkpoint, load_checkpoint, setup_logging
-from torch.utils.tensorboard import SummaryWriter
 
 # SEED
 def set_seed(seed):
@@ -43,13 +43,13 @@ def train_one_fold(fold_id, train_loader, val_loader, logger):
         optimizer,
         schedulers=[
             LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=config.WARM_UP_EPOCHS),
-            CosineAnnealingLR(optimizer, T_max=config.EPOCHS - config.WARM_UP_EPOCHS, config.MIN_LR)
+            CosineAnnealingLR(optimizer, T_max=config.EPOCHS - config.WARM_UP_EPOCHS, eta_min=config.MIN_LR)
         ],
         milestones=[config.WARM_UP_EPOCHS]
     )
 
-    criterion = nn.CrossEntropyLoss()
-    scaler = torch.amp.GradScaler("cuda")
+    criterion = nn.CrossEntropyLoss(weights=config.WEIGHTS)
+    scaler = torch.amp.GradScaler()
 
     # Resume checkpoint if exists
     resume_path = os.path.join(config.SAVE_DIR,

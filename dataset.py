@@ -9,24 +9,45 @@ from sklearn.model_selection import StratifiedKFold
 import pandas as pd
 import config
 
-# Transforms with explicit interpolation and normalization
+# Transforms
+class TransformedSubset(Subset):
+    """
+    Subset wrapper that applies a given transform to each sample.
+    Avoids re-scanning the directory for each fold by reusing the base dataset.
+    """
+    def __init__(self, dataset, indices, transform):
+        super().__init__(dataset, indices)
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        img, label = super().__getitem__(idx)
+        return self.transform(img), label
+
 def get_transforms(train: bool = True) -> transforms.Compose:
-    base_size = (224, 224)
-    transform_list = [
-        transforms.Resize(base_size, interpolation=transforms.InterpolationMode.BILINEAR)
-    ]
+    normalize = transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
+
     if train:
-        transform_list.append(transforms.RandomHorizontalFlip())
+        transform_list = [
+            # 1) 원본에서 곧바로 랜덤 크롭 + 리사이즈 (데이터 증강)
+            transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+        ]
+    else:
+        transform_list = [
+            # 1) 검증/테스트 시: 해상도 유지 + 중앙 크롭
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+        ]
+
     transform_list += [
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5] * 3, std=[0.5] * 3)
+        normalize()
     ]
     return transforms.Compose(transform_list)
 
 # Stratified K-Fold dataloaders
 def stratified_kfold_dataloaders():
-    # Enable cuDNN autotuner for fixed-size inputs
-    torch.backends.cudnn.benchmark = True
 
     train_tf = get_transforms(train=True)
     val_tf = get_transforms(train=False)
@@ -38,20 +59,16 @@ def stratified_kfold_dataloaders():
     skf = StratifiedKFold(
         n_splits=config.N_FOLDS,
         shuffle=True,
-        random_state=42
+        random_state=config.SEED
     )
+
+    dummy_X = np.zeros((len(labels), 1), dtype=np.float32)
 
     loaders = []
     for train_idx, val_idx in skf.split(np.zeros(len(labels)), labels):
         # Wrap subsets with desired transforms
-        train_ds = Subset(
-            datasets.ImageFolder(root=config.TRAIN_DIR, transform=train_tf),
-            train_idx
-        )
-        val_ds = Subset(
-            datasets.ImageFolder(root=config.TRAIN_DIR, transform=val_tf),
-            val_idx
-        )
+        train_ds = TransformedSubset(base_ds, train_idx, train_tf)
+        val_ds   = TransformedSubset(base_ds, val_idx,   val_tf)
 
         train_loader = DataLoader(
             train_ds,
