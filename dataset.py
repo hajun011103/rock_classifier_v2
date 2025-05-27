@@ -42,7 +42,7 @@ def get_transforms(train: bool = True) -> transforms.Compose:
 
     transform_list += [
         transforms.ToTensor(),
-        normalize()
+        normalize
     ]
     return transforms.Compose(transform_list)
 
@@ -74,20 +74,20 @@ def stratified_kfold_dataloaders():
             train_ds,
             batch_size=config.BATCH_SIZE,
             shuffle=True,
-            num_workers=getattr(config, 'NUM_WORKERS', 8),
+            num_workers=8,
             pin_memory=True,
             persistent_workers=True,
-            prefetch_factor=getattr(config, 'PREFETCH_FACTOR', 2),
+            prefetch_factor=6,
             drop_last=True
         )
         val_loader = DataLoader(
             val_ds,
             batch_size=config.BATCH_SIZE,
             shuffle=False,
-            num_workers=getattr(config, 'NUM_WORKERS', 8),
+            num_workers=8,
             pin_memory=True,
             persistent_workers=True,
-            prefetch_factor=getattr(config, 'PREFETCH_FACTOR', 2)
+            prefetch_factor=6
         )
 
         loaders.append((train_loader, val_loader))
@@ -123,6 +123,6 @@ def make_test_dataloader():
         test_ds,
         batch_size=config.BATCH_SIZE,
         shuffle=False,
-        num_workers=getattr(config, 'NUM_WORKERS', 8),
+        num_workers=8,
         pin_memory=True
     )
