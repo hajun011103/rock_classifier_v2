@@ -7,24 +7,11 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset, Dataset as TorchDataset
 from sklearn.model_selection import StratifiedKFold
 import pandas as pd
+
 import config
 
 # Transforms
-class TransformedSubset(Subset):
-    """
-    Subset wrapper that applies a given transform to each sample.
-    Avoids re-scanning the directory for each fold by reusing the base dataset.
-    """
-    def __init__(self, dataset, indices, transform):
-        super().__init__(dataset, indices)
-        self.transform = transform
-
-    def __getitem__(self, idx):
-        img, label = super().__getitem__(idx)
-        return self.transform(img), label
-
 def get_transforms(train: bool = True) -> transforms.Compose:
-    normalize = transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
 
     if train:
         transform_list = [
@@ -42,7 +29,7 @@ def get_transforms(train: bool = True) -> transforms.Compose:
 
     transform_list += [
         transforms.ToTensor(),
-        normalize
+        transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
     ]
     return transforms.Compose(transform_list)
 
@@ -67,8 +54,8 @@ def stratified_kfold_dataloaders():
     loaders = []
     for train_idx, val_idx in skf.split(np.zeros(len(labels)), labels):
         # Wrap subsets with desired transforms
-        train_ds = TransformedSubset(base_ds, train_idx, train_tf)
-        val_ds   = TransformedSubset(base_ds, val_idx,   val_tf)
+        train_ds = Subset(datasets.ImageFolder(root=config.TRAIN_DIR, transform=train_tf), train_idx)
+        val_ds   = Subset(datasets.ImageFolder(root=config.TRAIN_DIR, transform=val_tf), val_idx)
 
         train_loader = DataLoader(
             train_ds,
