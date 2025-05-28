@@ -49,7 +49,7 @@ def train_one_fold(fold_id, train_loader, val_loader, logger):
     )
 
     criterion = nn.CrossEntropyLoss(weight=config.WEIGHTS)
-    scaler = torch.amp.GradScaler()
+    scaler = torch.amp.GradScaler(device_type="cuda")
 
     # Resume checkpoint if exists
     resume_path = os.path.join(config.SAVE_DIR,
@@ -70,7 +70,7 @@ def train_one_fold(fold_id, train_loader, val_loader, logger):
             imgs, labels = imgs.to(config.DEVICE), targets.to(config.DEVICE)
 
             optimizer.zero_grad()
-            with autocast():
+            with autocast(device_type="cuda", dtype=torch.float16):
                 outputs = model(imgs)
                 loss = criterion(outputs, labels)
 
